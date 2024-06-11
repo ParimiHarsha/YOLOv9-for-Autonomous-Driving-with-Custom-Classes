@@ -16,7 +16,7 @@ from yolov9ros.msg import BboxCentersClass
 
 # Configuration parameters
 weights: str = (
-    "/home/avalocal/Documents/yolov9_ros/src/yolov9ros/src/yolov9/runs/detect/train16/weights/best.pt"
+    "/home/avalocal/Documents/yolov9_ros/src/yolov9ros/src/runs/detect/train16/weights/best.pt"
 )
 img_size: int = 640
 conf_thres: float = 0.6
@@ -24,7 +24,7 @@ iou_thres: float = 0.6
 device: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 view_img: bool = True
 augment: bool = True
-
+video_output_path: str = "output.mp4"  # Set the path for the output video file
 
 class Detect:
     def __init__(self) -> None:
@@ -41,6 +41,16 @@ class Detect:
         )
         self.image_pub = rospy.Publisher("~published_image", Image, queue_size=1)
         self.bboxInfo_pub = rospy.Publisher("~bboxInfo", BboxCentersClass, queue_size=1)
+        
+        # Initialize VideoWriter
+        self.video_writer = cv2.VideoWriter(
+            video_output_path,
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            30,  # Assuming 30 FPS, change if necessary
+            (img_size, img_size)
+        )
+        
+        rospy.on_shutdown(self.cleanup)  # Register cleanup function
         rospy.spin()
 
     def camera_callback(self, data: Image) -> None:
@@ -80,6 +90,9 @@ class Detect:
 
             if view_img:
                 self.publish_image(img_resized, data.header.stamp)
+            
+            # Write frame to video file
+            self.video_writer.write(img_resized)
 
     def publish_center_class(self, detections: List[float], stamp: rospy.Time) -> None:
         x1, y1, x2, y2, conf, cls = detections
@@ -105,7 +118,9 @@ class Detect:
         msg.step = 3 * img_pil.width
         msg.data = np.array(img_pil).tobytes()
         self.image_pub.publish(msg)
-
+        
+    def cleanup(self) -> None:
+        self.video_writer.release()
 
 if __name__ == "__main__":
     rospy.init_node("yoloLiveNode")
