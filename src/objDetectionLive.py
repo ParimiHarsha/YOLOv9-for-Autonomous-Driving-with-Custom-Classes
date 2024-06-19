@@ -1,13 +1,14 @@
 #!/usr/bin/env python
+# type: ignore
 
 from typing import List
 
 import cv2
-import geometry_msgs.msg
 import numpy as np
 import ros_numpy
 import rospy
 import torch
+from geometry_msgs.msg import Point32
 from PIL import Image as PILImage
 from sensor_msgs.msg import Image
 from ultralytics import YOLO
@@ -24,7 +25,9 @@ iou_thres: float = 0.6
 device: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 view_img: bool = True
 augment: bool = True
+write_file: bool = False  # Set this flag to control whether to write the video file
 video_output_path: str = "output.mp4"  # Set the path for the output video file
+
 
 class Detect:
     def __init__(self) -> None:
@@ -41,15 +44,16 @@ class Detect:
         )
         self.image_pub = rospy.Publisher("~published_image", Image, queue_size=1)
         self.bboxInfo_pub = rospy.Publisher("~bboxInfo", BboxCentersClass, queue_size=1)
-        
-        # Initialize VideoWriter
-        self.video_writer = cv2.VideoWriter(
-            video_output_path,
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            30,  # Assuming 30 FPS, change if necessary
-            (img_size, img_size)
-        )
-        
+
+        # Initialize VideoWriter if write_file is True
+        if write_file:
+            self.video_writer = cv2.VideoWriter(
+                video_output_path,
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                30,  # Assuming 30 FPS, change if necessary
+                (img_size, img_size),
+            )
+
         rospy.on_shutdown(self.cleanup)  # Register cleanup function
         rospy.spin()
 
@@ -90,21 +94,23 @@ class Detect:
 
             if view_img:
                 self.publish_image(img_resized, data.header.stamp)
-            
-            # Write frame to video file
-            self.video_writer.write(img_resized)
+
+            # Write frame to video file if write_file is True
+            if write_file:
+                self.video_writer.write(img_resized)
 
     def publish_center_class(self, detections: List[float], stamp: rospy.Time) -> None:
-        x1, y1, x2, y2, conf, cls = detections
+        x1, y1, x2, y2, _, cls = detections
         x_center: float = (x1 + x2) / 2
         y_center: float = (y1 + y2) / 2
-        point: geometry_msgs.msg.Point32 = geometry_msgs.msg.Point32(
-            x=x_center, y=y_center, z=cls
-        )
+        point = Point32(x=x_center, y=y_center, z=cls)
 
-        msg: BboxCentersClass = BboxCentersClass()
+        msg = BboxCentersClass()
         msg.header.stamp = stamp
         msg.CenterClass = [point]
+        rospy.loginfo(
+            "Publishing bounding box center: (%f, %f, %f)", x_center, y_center, cls
+        )
         self.bboxInfo_pub.publish(msg)
 
     def publish_image(self, img: np.ndarray, stamp: rospy.Time) -> None:
@@ -118,9 +124,11 @@ class Detect:
         msg.step = 3 * img_pil.width
         msg.data = np.array(img_pil).tobytes()
         self.image_pub.publish(msg)
-        
+
     def cleanup(self) -> None:
-        self.video_writer.release()
+        if write_file:
+            self.video_writer.release()
+
 
 if __name__ == "__main__":
     rospy.init_node("yoloLiveNode")
