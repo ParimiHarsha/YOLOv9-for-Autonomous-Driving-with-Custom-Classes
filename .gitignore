@@ -4,3 +4,5 @@
 # Files
 *.pt
 *.mp4
+*.pyc
+inference.ipynb

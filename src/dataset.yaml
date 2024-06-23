@@ -2,12 +2,16 @@ path: /media/avalocal/T9/harsha/datasets/ # dataset root dir
 train: 
     - /media/avalocal/T9/harsha/datasets/coco_mini/images/train # coco-minitrain images (relative to 'path') 
     - /media/avalocal/T9/harsha/datasets/cones_data/train/images #cones data
-    - /media/avalocal/T9/harsha/datasets/speed_limit_data_mini/train/images #speed limit data
-    - /media/avalocal/T9/harsha/datasets/Labelbox_data_final/images #labelbox data
+    - /media/avalocal/T9/harsha/datasets/speed_limit_data_all_labels_mini/train/images #speed limit data
+    # - /media/avalocal/T9/harsha/datasets/speed_limit_data_mini/train/images #speed limit data
+    # - /media/avalocal/T9/harsha/datasets/Labelbox_data_final/images #labelbox data cones
+    - /media/avalocal/T9/harsha/LabelBox_Data/Labelbox_Cones/images #labelbox data cones
+    - /media/avalocal/T9/harsha/LabelBox_Data/Labelbox_Speedlimit/images #labelbox data speedlimit
 val: 
     - /media/avalocal/T9/harsha/datasets/coco_mini/images/val
     - /media/avalocal/T9/harsha/datasets/cones_data/valid/images
-    - /media/avalocal/T9/harsha/datasets/speed_limit_data_mini/val/images
+    - /media/avalocal/T9/harsha/datasets/speed_limit_data_all_labels_mini/val/images
+    # - /media/avalocal/T9/harsha/datasets/speed_limit_data_mini/val/images
 # test: 
 #     - /media/avalocal/T9/harsha/datasets/coco_mini/images/test
 #     - /media/avalocal/T9/harsha/datasets/cones_data/test/images
@@ -178,4 +182,13 @@ names:
     78: 'hair drier'
     79: 'toothbrush'
     80: 'cone'
-    81: 'speed sign'
+    81: "Speed limit: 70"
+    82: "Speed limit: 75"
+    83: "Speed limit: 30"
+    84: "Speed limit: 35"
+    85: "Speed limit: 40"
+    86: "Speed limit: 45"
+    87: "Speed limit: 50"
+    88: "Speed limit: 55"
+    89: "Speed limit: 60"
+    90: "Speed limit: 65"
