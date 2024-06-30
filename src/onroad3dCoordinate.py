@@ -3,6 +3,7 @@
 
 import sys
 
+import cython
 import message_filters
 import numpy as np
 import ros_numpy
@@ -14,18 +15,34 @@ from jsk_recognition_msgs.msg import BoundingBox, BoundingBoxArray
 from sensor_msgs.msg import PointCloud2
 from yolov7ros.msg import BboxCentersClass
 
-sys.path.insert(1, "/home/avalocal/catkin_ws/src/YOLOv7_ROS/src/yolov7")
+# sys.path.insert(1, "/home/avalocal/catkin_ws/src/YOLOv7_ROS/src/yolov7")
 
 # Camera intrinsic parameters
+# Transfer information from inside the camera to outside frame. This needs to rescaled based on the input image size
+# explains how to make the image straight.
+# rect = np.array(
+#     [
+#         [1760.027735, 0.0, 522.446495, 0.0],
+#         [0.0, 1761.13935, 401.253765, 0.0],
+#         [0.00000, 0.0000000, 1.00000000, 0.000000],
+#     ]
+# )
+"""rect = np.array(
+    [
+        [1725.122315, 0.0, 522.961315, 0.0],
+        [0.0, 1740.355955, 402.58045, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+    ]
+)"""
 rect = np.array(
     [
-        [1760.027735, 0.0, 522.446495, 0.0],
-        [0.0, 1761.13935, 401.253765, 0.0],
-        [0.00000, 0.0000000, 1.00000000, 0.000000],
+        [3514.793819 / 2, 0.000000, 1096.938526 / 2, 0.0],
+        [0.000000, 3517.227722 / 2, 808.321613 / 2, 0.0],
+        [0.000000, 0.000000, 1.000000, 0.0],
     ]
 )
-
 # Camera extrinsic parameters (transformation matrix from lidar to camera)
+# Explains the rotation and translation from the lidar to the camera
 # T1 = np.array(
 #     [
 #         [0.038114, -0.027594, 0.998892, 1.057087],
@@ -34,12 +51,35 @@ rect = np.array(
 #         [0.000000, 0.000000, 0.000000, 1.00000],
 #     ]
 # )
-T1 = np.array(
+"""T1 = np.array(
     [
         [-0.022559, -0.030990, 0.999265, 1.691040],
         [-0.998779, -0.043245, -0.023890, 0.353791],
         [0.043958, -0.998584, -0.029977, -0.995298],
         [0.000000, 0.000000, 0.000000, 1.00000],
+    ]
+)"""
+T1 = np.array(
+    [
+        [
+            -0.01286594650077832,
+            -0.0460667467684005,
+            0.9988555061983764,
+            1.343301892280579,
+        ],
+        [
+            -0.9971783142793244,
+            -0.07329508411852753,
+            -0.01622467796607624,
+            0.2386326789855957,
+        ],
+        [
+            0.07395861648032626,
+            -0.9962457957182222,
+            -0.04499375025580721,
+            -0.7371386885643005,
+        ],
+        [0, 0, 0, 1],
     ]
 )
 
@@ -69,12 +109,106 @@ def inverse_rigid_transformation(arr):
 T_vel_cam = inverse_rigid_transformation(T1)
 
 # Point cloud and image processing limits
-lim_x = [2.5, 70]
-lim_y = [-25, 25]
-lim_z = [-5, 5]
+lim_x = [2.5, 100]
+lim_y = [-10, 10]
+lim_z = [-3.5, 5]
 height = 2048
 width = 1544
-pixel_lim = 5
+pixel_lim = 12
+
+class_names = {
+    0: "person",
+    1: "bicycle",
+    2: "car",
+    3: "motorcycle",
+    4: "airplane",
+    5: "bus",
+    6: "train",
+    7: "truck",
+    8: "boat",
+    9: "traffic light",
+    10: "fire hydrant",
+    11: "stop sign",
+    12: "parking meter",
+    13: "bench",
+    14: "bird",
+    15: "cat",
+    16: "dog",
+    17: "horse",
+    18: "sheep",
+    19: "cow",
+    20: "elephant",
+    21: "bear",
+    22: "zebra",
+    23: "giraffe",
+    24: "backpack",
+    25: "umbrella",
+    26: "handbag",
+    27: "tie",
+    28: "suitcase",
+    29: "frisbee",
+    30: "skis",
+    31: "snowboard",
+    32: "sports ball",
+    33: "kite",
+    34: "baseball bat",
+    35: "baseball glove",
+    36: "skateboard",
+    37: "surfboard",
+    38: "tennis racket",
+    39: "bottle",
+    40: "wine glass",
+    41: "cup",
+    42: "fork",
+    43: "knife",
+    44: "spoon",
+    45: "bowl",
+    46: "banana",
+    47: "apple",
+    48: "sandwich",
+    49: "orange",
+    50: "broccoli",
+    51: "carrot",
+    52: "hot dog",
+    53: "pizza",
+    54: "donut",
+    55: "cake",
+    56: "chair",
+    57: "couch",
+    58: "potted plant",
+    59: "bed",
+    60: "dining table",
+    61: "toilet",
+    62: "tv",
+    63: "laptop",
+    64: "mouse",
+    65: "remote",
+    66: "keyboard",
+    67: "cell phone",
+    68: "microwave",
+    69: "oven",
+    70: "toaster",
+    71: "sink",
+    72: "refrigerator",
+    73: "book",
+    74: "clock",
+    75: "vase",
+    76: "scissors",
+    77: "teddy bear",
+    78: "hair drier",
+    79: "toothbrush",
+    80: "cone",
+    81: "Speed limit: 70",
+    82: "Speed limit: 75",
+    83: "Speed limit: 30",
+    84: "Speed limit: 35",
+    85: "Speed limit: 40",
+    86: "Speed limit: 45",
+    87: "Speed limit: 50",
+    88: "Speed limit: 55",
+    89: "Speed limit: 60",
+    90: "Speed limit: 65",
+}
 
 
 class realCoor:
@@ -84,7 +218,7 @@ class realCoor:
 
     def __init__(self):
         # Publishers
-        self.pclOnroad_pub = rospy.Publisher("/onroad", PointCloud2, queue_size=1)
+        # self.pclOnroad_pub = rospy.Publisher("/onroad", PointCloud2, queue_size=1)
         self.bbox_publish = rospy.Publisher(
             "/fused_bbox", BoundingBoxArray, queue_size=1
         )
@@ -128,13 +262,12 @@ class realCoor:
 
         # Time synchronizer for lidar and image data
         ts = message_filters.ApproximateTimeSynchronizer(
-            [self.sub_lidar, self.sub_image], 20, 0.3
+            [self.sub_lidar, self.sub_image], 15, 0.4
         )
         ts.registerCallback(self.callback)
 
         # Visualization flag
         self.vis = True
-        print("End of init function")
         rospy.spin()
 
     def create_cloud(self, onRoad3d, which):
@@ -150,7 +283,7 @@ class realCoor:
             self.onroad_pointcloud = pc2.create_cloud(
                 self.header, self.fields, onRoad3d
             )
-            self.pclOnroad_pub.publish(self.onroad_pointcloud)
+            # self.pclOnroad_pub.publish(self.onroad_pointcloud)
         elif which == 1:
             pass
 
@@ -171,7 +304,8 @@ class realCoor:
         points[:, 3] = 1
 
         # Transpose and transform point cloud data
-        pc_arr_pick = np.transpose(points)
+        pc_arr = self.crop_pointcloud(points)  # to reduce computational expense
+        pc_arr_pick = np.transpose(pc_arr)
         m1 = np.matmul(T_vel_cam, pc_arr_pick)
         uv1 = np.matmul(rect, m1)
         uv1[0, :] = np.divide(uv1[0, :], uv1[2, :])
@@ -184,6 +318,7 @@ class realCoor:
 
         # Match bounding box centers with point cloud data
         for point in msgPoint.CenterClass:
+            # print("message point", class_names[msgPoint.CenterClass[0].z])
             idx = np.where(
                 ((u + pixel_lim >= point.x) & (u - pixel_lim <= point.x))
                 & ((v + pixel_lim >= point.y) & (v - pixel_lim <= point.y))
@@ -204,7 +339,7 @@ class realCoor:
                     )
                     label.append([point.z])
 
-        print(center_3d)
+        print("Center 3D", center_3d)
 
         # Publish bounding boxes if visualization is enabled
         if self.vis:
@@ -221,33 +356,28 @@ class realCoor:
                 bbox.pose.position.z = box[2]
 
                 bbox.pose.orientation.w = 1
-                bbox.dimensions.x = 1
-                bbox.dimensions.y = 1
-                bbox.dimensions.z = 1
+                bbox.dimensions.x = 1.5
+                bbox.dimensions.y = 1.5
+                bbox.dimensions.z = 1.5
                 bbox.value = 1
                 bbox.label = int(label[i][0])
                 bbox_array.header = bbox.header
                 bbox_array.boxes.append(bbox)
 
-            # for i, obj in enumerate(msgRadar.objects):
-            #     bbox = BoundingBox()
-            #     bbox.header = msgRadar.header
-            #     bbox.pose.position.x = (
-            #         obj.pose.pose.position.x - self.offset_radar_x
-            #     )
-            #     bbox.pose.position.y = (
-            #         obj.pose.pose.position.y - self.offset_radar_y
-            #     )
-            #     bbox.pose.position.z = (
-            #         obj.pose.pose.position.z - self.offset_radar_z
-            #     )
-            #     bbox.dimensions.x = 1
-            #     bbox.dimensions.y = 1
-            #     bbox.dimensions.z = 1
-            #     bbox_array.boxes.append(bbox)
+                # for i, obj in enumerate(msgRadar.objects):
+                #     bbox = BoundingBox()
+                #     bbox.header = msgRadar.header
+                #     bbox.pose.position.x = obj.pose.pose.position.x - self.offset_radar_x
+                #     bbox.pose.position.y = obj.pose.pose.position.y - self.offset_radar_y
+                #     bbox.pose.position.z = obj.pose.pose.position.z - self.offset_radar_z
+                #     bbox.dimensions.x = 1
+                #     bbox.dimensions.y = 1
+                #     bbox.dimensions.z = 1
+                #     bbox_array.boxes.append(bbox)
 
-            bbox_array.header.frame_id = msgLidar.header.frame_id
-            self.bbox_publish.publish(bbox_array)
+                bbox_array.header.frame_id = msgLidar.header.frame_id
+                # print("Bounding box array", bbox_array)
+                self.bbox_publish.publish(bbox_array)
 
     def crop_pointcloud(self, pointcloud):
         """

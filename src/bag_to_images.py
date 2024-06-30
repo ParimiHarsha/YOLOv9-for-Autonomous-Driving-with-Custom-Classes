@@ -35,9 +35,7 @@ def extract_images_from_rosbag(
 
 
 if __name__ == "__main__":
-    bag_file = "/media/avalocal/T9/harsha/2024-05-23-12-47-19.bag"
+    bag_file = "/media/avalocal/T7_Jonas/calib_may/2024-05-02-10-37-54.bag"
     image_topic = "/resized/camera_fl/image_color"
-    output_dir = (
-        "/home/avalocal/Documents/yolov9_ros/src/yolov9ros/src/yolov9/ros_images"
-    )
+    output_dir = "/media/avalocal/T7_Jonas/harsha/ros_images"
     extract_images_from_rosbag(bag_file, output_dir, image_topic)
