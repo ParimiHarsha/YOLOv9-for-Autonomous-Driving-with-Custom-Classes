@@ -1,5 +1,31 @@
-#!/usr/bin/env python
 # type: ignore
+"""
+YOLO Object Detection Node for ROS
+
+This module implements a ROS node for real-time object detection using the YOLO model.
+The detected objects are published as bounding box coordinates with class labels and
+confidence scores. Additionally, the module supports optional video recording of the
+detection results.
+
+Classes:
+    Detect: A class for handling YOLO object detection in ROS.
+
+Configuration parameters:
+    weights (str): Path to the YOLO model weights file.
+    img_size (int): Size to which input images are resized for detection.
+    conf_thres (float): Confidence threshold for filtering detections.
+    device (torch.device): Device to run the model on (CUDA if available, otherwise CPU).
+    view_img (bool): Flag to enable publishing detected images.
+    write_file (bool): Flag to enable video recording of detections.
+
+Usage:
+    Run the module as a python script using. Ensure the ROS environment is set up correctly
+    and the required topics are available.
+
+Example:
+    python yolo_detection_node.py
+
+"""
 
 from typing import List
 
@@ -7,7 +33,6 @@ import cv2
 import numpy as np
 import ros_numpy
 import rospy
-import supervision as sv
 import torch
 from geometry_msgs.msg import Point32
 from PIL import Image as PILImage
@@ -21,13 +46,16 @@ weights: str = (
     "/home/avalocal/Documents/yolov9_ros/src/yolov9ros/src/runs/detect/train3/weights/best.pt"
 )
 img_size: int = 640
-conf_thres: float = 0.8
-iou_thres: float = 0.6
+conf_thres: float = 0.5
+
+# Initialize CUDA device early
 device: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print("Is CUDA available", torch.cuda.is_available())
+if device != torch.device("cpu"):
+    torch.cuda.init()  # Ensure CUDA is initialized early
+
 view_img: bool = True
-augment: bool = True
 write_file: bool = False  # Set this flag to control whether to write the video file
-video_output_path: str = "sign_test.mp4"  # Set the path for the output video file
 
 
 class Detect:
@@ -50,7 +78,7 @@ class Detect:
         # Initialize VideoWriter if write_file is True
         if write_file:
             self.video_writer = cv2.VideoWriter(
-                video_output_path,
+                "video_output.mp4",
                 cv2.VideoWriter_fourcc(*"mp4v"),
                 30,  # Assuming 30 FPS, change if necessary
                 (img_size, img_size),
@@ -65,12 +93,12 @@ class Detect:
         img: np.ndarray = ros_numpy.numpify(data)  # Image size is (772, 1032, 3)
         img_resized: np.ndarray = cv2.resize(
             img, (img_size, img_size)
-        )  # Image resized to (640,640)
+        )  # Image resized to (640, 640)
         img_rgb: np.ndarray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
-        img_tensor: torch.Tensor = (
-            torch.from_numpy(img_rgb).to(device).float().permute(2, 0, 1) / 255.0
-        )
-        img_tensor = img_tensor.unsqueeze(0)
+
+        # Normalize and prepare the tensor
+        img_tensor: torch.Tensor = torch.from_numpy(img_rgb).to(device).float()
+        img_tensor = img_tensor.permute(2, 0, 1).unsqueeze(0) / 255.0
 
         with torch.no_grad():
             detections = self.model(img_tensor)[0]
@@ -103,7 +131,10 @@ class Detect:
                 )
 
             if len(filtered_bboxes) > 0:
-                self.publish_center_class(detections.boxes.data, data.header.stamp)
+                self.publish_center_class(
+                    detections.boxes.data[filtered_indices],
+                    data.header.stamp,
+                )
 
             if view_img:
                 self.publish_image(img_resized, data.header.stamp)
