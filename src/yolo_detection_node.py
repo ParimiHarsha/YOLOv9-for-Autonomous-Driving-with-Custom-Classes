@@ -43,10 +43,11 @@ from yolov9ros.msg import BboxCentersClass
 
 # Configuration parameters
 weights: str = (
-    "/home/avalocal/Documents/yolov9_ros/src/yolov9ros/src/runs/detect/train3/weights/best.pt"
+    "/home/dev/Desktop/latest_perception/src/yolov9ros/best.pt"
+
 )
 img_size: int = 640
-conf_thres: float = 0.5
+conf_thres: float = 0.2
 
 # Initialize CUDA device early
 device: torch.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

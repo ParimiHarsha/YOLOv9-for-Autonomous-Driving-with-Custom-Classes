@@ -25,7 +25,7 @@ import ros_numpy
 import rospy
 import sensor_msgs.point_cloud2 as pc2
 import std_msgs.msg
-import tf
+#import tf
 import torch
 import yaml
 from derived_object_msgs.msg import ObjectWithCovarianceArray
@@ -69,7 +69,7 @@ T1 = np.array(
 
 # Point cloud limits
 lim_x, lim_y, lim_z = [2.5, 100], [-10, 10], [-3.5, 5]
-pixel_lim = 10
+pixel_lim = 5
 
 # Radar Limit Cutoff
 radar_limit = 50  # meters
@@ -136,9 +136,9 @@ class RealCoor:
         )
 
         # Radar offsets
-        self.offset_radar_x = 3.65 - 1.435
-        self.offset_radar_y = -0.2
-        self.offset_radar_z = -0.655 - 1.324
+        self.offset_radar_x = 0# 3.65 - 1.435
+        self.offset_radar_y = 0 # -0.2
+        self.offset_radar_z = 0 # -0.655 - 1.324
 
         # Initialize header
         self.header = std_msgs.msg.Header()
@@ -209,7 +209,21 @@ class RealCoor:
             radar_detections = msgRadar.objects
 
             matched_pairs = []
-            close_distance_threshold = 10  # meters
+            matched_camera = []
+            close_distance_threshold = 5  # meters
+            close_distance_threshold_camera = 0.5
+
+            # for i, cam_det_1 in enumerate(camera_detections):
+            #     for j, cam_det_2 in enumerate(camera_detections):
+            #     # for j, rad_det in enumerate(radar_detections):
+            #         if i==j:
+            #             continue
+            #         else:
+            #             cam_position_1 = cam_det_1[:3]
+            #             cam_position_2 = cam_det_2[:3]
+            #             distance = np.linalg.norm(cam_position_1 - cam_position_2)
+            #             if distance < close_distance_threshold_camera:
+            #                 matched_camera.append((i, j))
 
             for i, cam_det in enumerate(camera_detections):
                 for j, rad_det in enumerate(radar_detections):
@@ -225,7 +239,7 @@ class RealCoor:
                     if distance < close_distance_threshold:
                         matched_pairs.append((i, j))
 
-            rospy.loginfo(f"Matched pairs: {matched_pairs}")
+            rospy.loginfo(f"Matched pairs: {matched_camera}")
             matched_dict = defaultdict(list)
             for i, j in matched_pairs:
                 matched_dict[i].append(j)
@@ -234,28 +248,28 @@ class RealCoor:
             prev_yaw = None
             alpha = 0.5
             for i, box in enumerate(center_3d):  # camera detections
-
-                class_ = int(label[i][0])
-                x, y, z = box[:3]
-                bbox = BoundingBox()
-                bbox.header.stamp = msgLidar.header.stamp
-                bbox.header.frame_id = msgLidar.header.frame_id
-                bbox.pose.position.x, bbox.pose.position.y, bbox.pose.position.z = box[
-                    :3
-                ]
-                # bbox dimensions
-                bbox.dimensions.x, bbox.dimensions.y, bbox.dimensions.z = (
-                    average_dimensions[class_]["dimensions"][2],
-                    average_dimensions[class_]["dimensions"][1],
-                    average_dimensions[class_]["dimensions"][0],
-                )
-
-                # bbox orientation
-                if matched_dict[i]:
-                    yaw = math.atan2(
-                        msgRadar.objects[matched_dict[i][0]].twist.twist.linear.y,
-                        msgRadar.objects[matched_dict[i][0]].twist.twist.linear.x,
+                if i not in [f for f, g in matched_camera]:
+                    class_ = int(label[i][0])
+                    x, y, z = box[:3]
+                    bbox = BoundingBox()
+                    bbox.header.stamp = msgLidar.header.stamp
+                    bbox.header.frame_id = msgLidar.header.frame_id
+                    bbox.pose.position.x, bbox.pose.position.y, bbox.pose.position.z = box[
+                        :3
+                    ]
+                    # bbox dimensions
+                    bbox.dimensions.x, bbox.dimensions.y, bbox.dimensions.z = (
+                        average_dimensions[class_]["dimensions"][2],
+                        average_dimensions[class_]["dimensions"][1],
+                        average_dimensions[class_]["dimensions"][0],
                     )
+
+                # # bbox orientation
+                # if matched_dict[i]:
+                #     yaw = math.atan2(
+                #         msgRadar.objects[matched_dict[i][0]].twist.twist.linear.y,
+                #         msgRadar.objects[matched_dict[i][0]].twist.twist.linear.x,
+                #     )
 
                     # if prev_yaw is None:
                     #     smoothed_yaw = current_yaw
@@ -265,15 +279,15 @@ class RealCoor:
                     # prev_yaw = smoothed_yaw
 
                     # Create quaternion from yaw
-                    quaternion = tf.transformations.quaternion_from_euler(0.0, 0.0, yaw)
+                    #quaternion = tf.transformations.quaternion_from_euler(0.0, 0.0, yaw)
                     # bbox.pose.orientation.x = quaternion[0]
                     # bbox.pose.orientation.y = quaternion[1]
                     # bbox.pose.orientation.z = quaternion[2]
                     # bbox.pose.orientation.w = quaternion[3]
-                bbox.pose.orientation.w = 1
-                bbox.value = 1
-                bbox.label = int(label[i][0])  # class number
-                bbox_array.boxes.append(bbox)
+                    bbox.pose.orientation.w = 1
+                    bbox.value = 1
+                    bbox.label = int(label[i][0])  # class number
+                    bbox_array.boxes.append(bbox)
 
             # Add radar objects to bounding box array
             for i, obj in enumerate(msgRadar.objects):  # radar detections
@@ -295,6 +309,7 @@ class RealCoor:
                     bbox_array.boxes.append(bbox)
 
             bbox_array.header.frame_id = msgLidar.header.frame_id
+            print('this is the len of boxes', np.array(bbox_array).shape)
             self.bbox_publish.publish(bbox_array)
             rospy.loginfo("Published fused bounding boxes.")
 

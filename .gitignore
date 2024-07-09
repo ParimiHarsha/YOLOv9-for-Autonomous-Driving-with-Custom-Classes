@@ -5,4 +5,5 @@
 *.pt
 *.mp4
 *.pyc
+*.log
 inference.ipynb
