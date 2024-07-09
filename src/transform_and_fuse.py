@@ -1,21 +1,23 @@
 # type: ignore
 """
-This script transforms 2D bounding box coordinates from image space to 3D lidar space 
-and integrates radar object data. It uses ROS (Robot Operating System) to synchronize 
-and process data from lidar, image, and radar sensors. The result is a fused 3D bounding 
+This script transforms 2D bounding box coordinates from image space to 3D lidar space
+and integrates radar object data. It uses ROS (Robot Operating System) to synchronize
+and process data from lidar, image, and radar sensors. The result is a fused 3D bounding
 box representation of detected objects which is published as a ROS message.
 
 Usage:
 - This script should be executed within a ROS environment where the required
- topics (`/lidar_tc/velodyne_points`,`/yoloLiveNode/bboxInfo`, `/radar_fc/as_tx/objects`) 
+ topics (`/lidar_tc/velodyne_points`,`/yoloLiveNode/bboxInfo`, `/radar_fc/as_tx/objects`)
  are being published.
-- It assumes the presence of specific message types and sensor configurations 
+- It assumes the presence of specific message types and sensor configurations
 as defined in the imported message types.
 
 Example:
     python transform_and_fuse.py
 """
+
 import math
+from collections import defaultdict
 
 import message_filters
 import numpy as np
@@ -24,10 +26,10 @@ import rospy
 import sensor_msgs.point_cloud2 as pc2
 import std_msgs.msg
 import tf
+import torch
 import yaml
 from derived_object_msgs.msg import ObjectWithCovarianceArray
 from jsk_recognition_msgs.msg import BoundingBox, BoundingBoxArray
-from scipy.optimize import linear_sum_assignment
 from sensor_msgs.msg import PointCloud2
 from yolov7ros.msg import BboxCentersClass
 
@@ -70,10 +72,10 @@ lim_x, lim_y, lim_z = [2.5, 100], [-10, 10], [-3.5, 5]
 pixel_lim = 10
 
 # Radar Limit Cutoff
-radar_limit = 50
+radar_limit = 50  # meters
 
 # Average Class Dimensions
-with open("class_averages.yaml", "r") as file:
+with open("class_averages.yaml", "r", encoding="utf-8") as file:
     average_dimensions = yaml.safe_load(file)
 
 
@@ -97,6 +99,7 @@ class RealCoor:
     """
 
     def __init__(self):
+        rospy.loginfo("Initializing TransformFuse node...")
         # Initialize ROS publishers
         self.bbox_publish = rospy.Publisher(
             "/fused_bbox", BoundingBoxArray, queue_size=1
@@ -126,7 +129,10 @@ class RealCoor:
             "/yoloLiveNode/bboxInfo", BboxCentersClass, queue_size=1
         )
         self.sub_radar = message_filters.Subscriber(
-            "/radar_fc/as_tx/objects", ObjectWithCovarianceArray
+            "/radar_fc/as_tx/objects",
+            ObjectWithCovarianceArray,
+            queue_size=10,
+            tcp_nodelay=True,
         )
 
         # Radar offsets
@@ -146,21 +152,8 @@ class RealCoor:
 
         # Visualization flag
         self.vis = True
+        rospy.loginfo("Initialization complete. Spinning...")
         rospy.spin()
-
-    def create_cloud(self, onRoad3d, which):
-        """
-        Create and publish a point cloud message.
-
-        Args:
-            onRoad3d (np.ndarray): Point cloud data.
-            which (int): Flag to indicate which point cloud to create.
-        """
-        self.header.stamp = rospy.Time.now()
-        if which == 0:
-            point_cloud_msg = pc2.create_cloud(self.header, self.fields, onRoad3d)
-            # Uncomment to publish point cloud
-            # self.pclOnroad_pub.publish(point_cloud_msg)
 
     def callback(self, msgLidar, msgPoint, msgRadar):
         """
@@ -171,6 +164,8 @@ class RealCoor:
             msgPoint (yolov7ros.msg.BboxCentersClass): Bounding box centers from image detection.
             msgRadar (derived_object_msgs.msg.ObjectWithCovarianceArray): Radar objects message.
         """
+        rospy.loginfo("Received synchronized messages.")
+
         # Convert lidar data to numpy array
         pc = ros_numpy.numpify(msgLidar)
         points = np.vstack((pc["x"], pc["y"], pc["z"], np.ones(pc["x"].shape[0]))).T
@@ -178,13 +173,13 @@ class RealCoor:
         # Crop point cloud and transform to camera frame
         pc_arr = self.crop_pointcloud(points)
         pc_arr_pick = np.transpose(pc_arr)
-        m1 = np.matmul(T_vel_cam, pc_arr_pick)
-        uv1 = np.matmul(rect, m1)
+        m1 = torch.matmul(torch.tensor(T_vel_cam), torch.tensor(pc_arr_pick))
+        uv1 = torch.matmul(torch.tensor(rect), m1)
         uv1[:2, :] /= uv1[2, :]
 
         center_3d = []
         label = []
-        u, v = uv1[0, :], uv1[1, :]
+        u, v = uv1[0, :].numpy(), uv1[1, :].numpy()
 
         # Match bounding box centers with point cloud data
         for point in msgPoint.CenterClass:
@@ -201,9 +196,11 @@ class RealCoor:
                         [pc_arr_pick[0][i], pc_arr_pick[1][i], pc_arr_pick[2][i], 1]
                     )
                     label.append([point.z])
-        print(center_3d)
+
+        rospy.loginfo(f"Detected {len(center_3d)} bounding box centers.")
 
         if self.vis:
+
             bbox_array = BoundingBoxArray()
             center_3d = np.array(center_3d)
 
@@ -211,19 +208,32 @@ class RealCoor:
             camera_detections = center_3d
             radar_detections = msgRadar.objects
 
-            distance_matrix = self.compute_distance_matrix(
-                camera_detections, radar_detections
-            )
+            matched_pairs = []
+            close_distance_threshold = 10  # meters
 
-            # Use the Hungarian algorithm to find the optimal assignment
-            row_ind, col_ind = linear_sum_assignment(distance_matrix)
-            # print("row index and col index", row_ind, col_ind)
-            # Print the matched pairs
-            # for i, j in zip(row_ind, col_ind):
-            #     print(f"Camera detection {i} is matched with Radar detection {j}")
+            for i, cam_det in enumerate(camera_detections):
+                for j, rad_det in enumerate(radar_detections):
+                    cam_position = cam_det[:3]
+                    rad_position = np.array(
+                        [
+                            rad_det.pose.pose.position.x - self.offset_radar_x,
+                            rad_det.pose.pose.position.y - self.offset_radar_y,
+                            rad_det.pose.pose.position.z - self.offset_radar_z,
+                        ]
+                    )
+                    distance = np.linalg.norm(cam_position - rad_position)
+                    if distance < close_distance_threshold:
+                        matched_pairs.append((i, j))
+
+            rospy.loginfo(f"Matched pairs: {matched_pairs}")
+            matched_dict = defaultdict(list)
+            for i, j in matched_pairs:
+                matched_dict[i].append(j)
 
             # Add 3D centers to bounding box array
-            for i, box in enumerate(center_3d):
+            prev_yaw = None
+            alpha = 0.5
+            for i, box in enumerate(center_3d):  # camera detections
 
                 class_ = int(label[i][0])
                 x, y, z = box[:3]
@@ -233,31 +243,41 @@ class RealCoor:
                 bbox.pose.position.x, bbox.pose.position.y, bbox.pose.position.z = box[
                     :3
                 ]
+                # bbox dimensions
+                bbox.dimensions.x, bbox.dimensions.y, bbox.dimensions.z = (
+                    average_dimensions[class_]["dimensions"][2],
+                    average_dimensions[class_]["dimensions"][1],
+                    average_dimensions[class_]["dimensions"][0],
+                )
 
-                # yaw = yaw_angle = math.atan2(y, x + bbox.dimensions.x / 2)
+                # bbox orientation
+                if matched_dict[i]:
+                    yaw = math.atan2(
+                        msgRadar.objects[matched_dict[i][0]].twist.twist.linear.y,
+                        msgRadar.objects[matched_dict[i][0]].twist.twist.linear.x,
+                    )
 
-                # # quaternion = tf.transformations.quaternion_from_euler(0, 0, yaw)
-                # bbox.pose.orientation.x = quaternion[0]
-                # bbox.pose.orientation.y = quaternion[1]
-                # bbox.pose.orientation.z = quaternion[2]
-                # bbox.pose.orientation.w = 1
-                # estimated_yaw = math.atan2(y, x)
+                    # if prev_yaw is None:
+                    #     smoothed_yaw = current_yaw
+                    # else:
+                    #     smoothed_yaw = alpha * current_yaw + (1 - alpha) * prev_yaw
 
-                # bbox.pose.orientation.w = 1 if estimated_yaw > 0 else -1
+                    # prev_yaw = smoothed_yaw
 
+                    # Create quaternion from yaw
+                    quaternion = tf.transformations.quaternion_from_euler(0.0, 0.0, yaw)
+                    # bbox.pose.orientation.x = quaternion[0]
+                    # bbox.pose.orientation.y = quaternion[1]
+                    # bbox.pose.orientation.z = quaternion[2]
+                    # bbox.pose.orientation.w = quaternion[3]
                 bbox.pose.orientation.w = 1
-                bbox.dimensions.x = average_dimensions[class_]["dimensions"][2]
-                bbox.dimensions.y = average_dimensions[class_]["dimensions"][1]
-                bbox.dimensions.z = average_dimensions[class_]["dimensions"][0]
-
                 bbox.value = 1
                 bbox.label = int(label[i][0])  # class number
                 bbox_array.boxes.append(bbox)
 
             # Add radar objects to bounding box array
-            for i, obj in enumerate(msgRadar.objects):
-                if i not in col_ind and obj.pose.pose.position.x > radar_limit:
-                    # if i not in col_ind:
+            for i, obj in enumerate(msgRadar.objects):  # radar detections
+                if i not in [g for f, g in matched_pairs]:
                     bbox = BoundingBox()
                     bbox.header = msgRadar.header
                     bbox.pose.position.x = (
@@ -276,9 +296,19 @@ class RealCoor:
 
             bbox_array.header.frame_id = msgLidar.header.frame_id
             self.bbox_publish.publish(bbox_array)
+            rospy.loginfo("Published fused bounding boxes.")
 
-    # Calculate the distance matrix
     def compute_distance_matrix(self, camera_detections, radar_detections):
+        """
+        Calculate the distance matrix between camera and radar detections.
+
+        Args:
+            camera_detections (np.ndarray): Camera detection coordinates.
+            radar_detections (list): List of radar detections.
+
+        Returns:
+            np.ndarray: Distance matrix.
+        """
         num_camera = camera_detections.shape[0]
         num_radar = len(radar_detections)
 

@@ -130,11 +130,11 @@ class Detect:
                     2,
                 )
 
-            if len(filtered_bboxes) > 0:
-                self.publish_center_class(
-                    detections.boxes.data[filtered_indices],
-                    data.header.stamp,
-                )
+            # if len(filtered_bboxes) > 0:
+            self.publish_center_class(
+                detections.boxes.data[filtered_indices],
+                data.header.stamp,
+            )
 
             if view_img:
                 self.publish_image(img_resized, data.header.stamp)
