@@ -49,28 +49,20 @@ class InferenceROS:
 
         # Load model
         self.weights = "/home/avalocal/Documents/yolov9_ros/src/yolov9ros/src/runs/detect/train3/weights/best.pt"
-        # self.source = "data/coco128.yaml"
 
         self.device = 0
         # self.data = "data/coco128.yaml"
         # self.device = select_device(self.device)
         self.model = YOLO(self.weights)
-        # self.imgsz = 640
-        # self.base_model = model_factory[self.model_select]
-        # self.regressor = regressor_factory[self.model_select](
-        #     model=self.base_model
-        # ).cuda()
+        self.imgsz = 640
         my_vgg = vgg.vgg19_bn(pretrained=True)
         self.regressor = Model.Model(features=my_vgg.features, bins=2).cuda()
+        # load weight
         checkpoint = torch.load(
-            "/media/avalocal/T9/harsha/datasets/3D-BoundingBox/weights/epoch_20.pkl"
+            "/media/avalocal/T7_Jonas/harsha/3D-BoundingBox/weights/epoch_20.pkl"
         )
         self.regressor.load_state_dict(checkpoint["model_state_dict"])
         self.regressor.eval()
-        # load weight
-        # checkpoint = torch.load(reg_weights)
-        # self.regressor.load_state_dict(checkpoint["model_state_dict"])
-        # self.regressor.eval()
 
         self.averages = ClassAverages.ClassAverages()
         self.angle_bins = generate_bins(2)
@@ -90,9 +82,9 @@ class InferenceROS:
 
         rect = np.array(
             [
-                [1760.027735, 0.0, 522.446495, 0.0],
-                [0.0, 1761.13935, 401.253765, 0.0],
-                [0.00000, 0.0000000, 1.00000000, 0.000000],
+                [1725.122315, 0.0, 522.961315, 0.0],
+                [0.0, 1740.355955, 402.58045, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
             ]
         )
         self.T1 = np.array(
