@@ -55,7 +55,8 @@ This project contains scripts to perform object detection using YOLOv9 on images
   - `jsk_recognition_msgs`
   - `PIL` (Pillow)
   - `numpy`
-
+## Trained Model
+https://drive.google.com/file/d/1UAX-7jSXQJcyRdumn8iXmwjfJxxyC9Tw/view?usp=sharing
 ## Setup
 
 ### Install ROS and Dependencies
