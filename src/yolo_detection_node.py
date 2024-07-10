@@ -34,6 +34,7 @@ import numpy as np
 import ros_numpy
 import rospy
 import torch
+import yaml
 from geometry_msgs.msg import Point32
 from PIL import Image as PILImage
 from sensor_msgs.msg import Image
@@ -56,6 +57,10 @@ if device != torch.device("cpu"):
 
 view_img: bool = True
 write_file: bool = False  # Set this flag to control whether to write the video file
+
+# Average Class Dimensions
+with open("class_averages.yaml", "r", encoding="utf-8") as file:
+    average_dimensions = yaml.safe_load(file)
 
 
 class Detect:
@@ -130,7 +135,6 @@ class Detect:
                     2,
                 )
 
-            # if len(filtered_bboxes) > 0:
             self.publish_center_class(
                 detections.boxes.data[filtered_indices],
                 data.header.stamp,
@@ -156,10 +160,10 @@ class Detect:
                 point = Point32(x=x_center, y=y_center, z=cls)
                 msg.CenterClass.append(point)
                 rospy.loginfo(
-                    "Appended bounding box center: (%f, %f, %f)",
+                    "Appended bounding box center: (%f, %f, %s)",
                     x_center,
                     y_center,
-                    cls,
+                    average_dimensions[int(cls.item())]["name"],
                 )
         self.bboxInfo_pub.publish(msg)
 
