@@ -136,11 +136,6 @@ class TransformFuse:
             tcp_nodelay=True,
         )
 
-        # Radar offsets
-        # self.offset_radar_x = 3.65 - 1.435
-        # self.offset_radar_y = -0.2
-        # self.offset_radar_z = -0.655 - 1.324
-
         # Initialize header
         self.header = std_msgs.msg.Header()
         self.header.frame_id = "lidar_tc"
@@ -201,14 +196,31 @@ class TransformFuse:
         bbox_array = BoundingBoxArray()
         center_3d = np.array(center_3d)
 
+        # Filtering out duplicate camera detections
+        unique_camera_indices = []
+        if center_3d.size > 0:  # Check if center_3d is empty
+            close_distance_threshold_camera = 0.5
+            db = DBSCAN(eps=close_distance_threshold_camera, min_samples=1).fit(
+                center_3d[:, :3]
+            )
+
+            for lab in set(db.labels_):
+                indices = np.where(db.labels_ == lab)[0]
+                unique_camera_indices.append(
+                    indices[0]
+                )  # Taking the first point in the cluster
+
+        rospy.loginfo(f"Found {len(unique_camera_indices)} unique camera detections.")
+
         # Finding matching detections b/w camera and radar
-        camera_detections = center_3d
+        camera_detections = unique_camera_indices
         radar_detections = msgRadar.objects
 
         matched_pairs = []
-        for i, cam_det in enumerate(camera_detections):
+        for i in camera_detections:
             for j, rad_det in enumerate(radar_detections):
-                cam_position = cam_det[:3]
+                # cam_position = cam_det[:3]
+                cam_position = center_3d[i][:3]
                 rad_position = np.array(
                     [
                         rad_det.pose.pose.position.x,
@@ -224,22 +236,6 @@ class TransformFuse:
         matched_dict = defaultdict(list)
         for i, j in matched_pairs:
             matched_dict[i].append(j)
-
-        # Filtering out duplicate camera detections
-        unique_camera_indices = []
-        if center_3d.size > 0:  # Check if center_3d is empty
-            close_distance_threshold_camera = 0.5
-            db = DBSCAN(eps=close_distance_threshold_camera, min_samples=1).fit(
-                camera_detections[:, :3]
-            )
-
-            for lab in set(db.labels_):
-                indices = np.where(db.labels_ == lab)[0]
-                unique_camera_indices.append(
-                    indices[0]
-                )  # Taking the first point in the cluster
-
-        rospy.loginfo(f"Found {len(unique_camera_indices)} unique camera detections.")
 
         # Add 3D centers to bounding box array
         for i, box in enumerate(center_3d):  # camera detections
