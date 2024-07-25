@@ -69,7 +69,7 @@ T1 = np.array(
 
 # Point cloud limits
 lim_x, lim_y, lim_z = [2.5, 100], [-10, 10], [-3.5, 5]
-pixel_lim = 10
+pixel_lim = 6
 
 # Radar Limit Cutoff
 radar_limit = 50  # meters
@@ -199,7 +199,7 @@ class TransformFuse:
         # Filtering out duplicate camera detections
         unique_camera_indices = []
         if center_3d.size > 0:  # Check if center_3d is empty
-            close_distance_threshold_camera = 0.5
+            close_distance_threshold_camera = 1
             db = DBSCAN(eps=close_distance_threshold_camera, min_samples=1).fit(
                 center_3d[:, :3]
             )
